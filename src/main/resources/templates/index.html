@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Spring AI Lab</title>
+    <style>
+        :root { color-scheme: light dark; }
+        body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+        h1 { font-size: 1.6rem; }
+        section { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        h2 { margin-top: 0; font-size: 1.15rem; }
+        textarea, input[type=text] { width: 100%; box-sizing: border-box; padding: .5rem; margin: .25rem 0; }
+        button { padding: .5rem 1rem; cursor: pointer; }
+        pre { white-space: pre-wrap; background: #8881; padding: .75rem; border-radius: 6px; min-height: 2rem; }
+        .hint { font-size: .85rem; opacity: .75; }
+        code { background: #8882; padding: 0 .3rem; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<h1>Spring AI Lab</h1>
+<p class="hint">One page, four concepts. Open devtools → Network to watch the REST calls.</p>
+
+<section>
+    <h2>1. Chat</h2>
+    <textarea id="chatMsg" rows="2" placeholder="Ask anything...">What is Spring AI in one sentence?</textarea><br>
+    <button onclick="post('/api/chat', {message: v('chatMsg')}, 'chatOut')">Send</button>
+    <button onclick="streamChat()">Stream it</button>
+    <pre id="chatOut"></pre>
+</section>
+
+<section>
+    <h2>2. Prompt template</h2>
+    <input type="text" id="topic" placeholder="Topic" value="vector databases">
+    <input type="text" id="level" placeholder="Audience level" value="curious beginner"><br>
+    <button onclick="post('/api/chat/explain', {topic: v('topic'), level: v('level')}, 'promptOut')">Explain</button>
+    <pre id="promptOut"></pre>
+</section>
+
+<section>
+    <h2>3. Agent (tool calling)</h2>
+    <textarea id="agentMsg" rows="2" placeholder="Ask something needing tools...">What time is it in Tokyo, and what is (15/100)*240?</textarea><br>
+    <button onclick="post('/api/agent', {message: v('agentMsg')}, 'agentOut')">Ask the agent</button>
+    <p class="hint">Tools: current time, calculator, currency converter. Check the server log to see the tool calls.</p>
+    <pre id="agentOut"></pre>
+</section>
+
+<section>
+    <h2>4. RAG over the lab docs</h2>
+    <textarea id="ragQ" rows="2" placeholder="Ask about this project...">What does the agent module do?</textarea><br>
+    <button onclick="post('/api/rag', {question: v('ragQ')}, 'ragOut')">Ask RAG</button>
+    <button onclick="post('/api/rag/reload', {}, 'ragOut')">Reload docs</button>
+    <p class="hint">Answers must come from <code>src/main/resources/docs/</code>. Edit a doc, hit reload, ask again.</p>
+    <pre id="ragOut"></pre>
+</section>
+
+<script>
+    const v = id => document.getElementById(id).value;
+    async function post(url, body, outId) {
+        const out = document.getElementById(outId);
+        out.textContent = '...';
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        // Read the body once. Chat and explain return plain text; RAG returns JSON.
+        // res.json().catch(() => res.text()) fails because the first read consumes the stream.
+        const text = await res.text();
+        const type = res.headers.get('content-type') || '';
+        let data = text;
+        if (type.includes('json') && text) {
+            data = JSON.parse(text);
+        }
+        out.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    }
+    async function streamChat() {
+        const out = document.getElementById('chatOut');
+        out.textContent = '';
+        const res = await fetch('/api/chat/stream?message=' + encodeURIComponent(v('chatMsg')));
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            // SSE frames look like "data:token\n\n" — strip the framing
+            out.textContent += decoder.decode(value).replaceAll(/(^|\n)data:/g, '$1');
+        }
+    }
+</script>
+</body>
+</html>
